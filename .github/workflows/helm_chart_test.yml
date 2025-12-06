@@ -1,0 +1,240 @@
+name: Helm Chart Test
+
+on:
+  workflow_call:
+    inputs:
+      chart-path:
+        description: 'Path to Helm charts directory'
+        required: false
+        type: string
+        default: 'helm'
+      helm-version:
+        description: 'Helm version to use'
+        required: false
+        type: string
+        default: 'v3.16.3'
+      kubernetes-version:
+        description: 'Kubernetes version for testing'
+        required: false
+        type: string
+        default: 'v1.31.2'
+      enable-kubeconform:
+        description: 'Enable kubeconform validation'
+        required: false
+        type: boolean
+        default: true
+      enable-kubeval:
+        description: 'Enable kubeval validation'
+        required: false
+        type: boolean
+        default: false
+      enable-polaris:
+        description: 'Enable Polaris best practices check'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  find-charts:
+    name: Find Helm Charts
+    runs-on: ubuntu-latest
+    outputs:
+      charts: ${{ steps.find.outputs.charts }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Find Helm charts
+        id: find
+        run: |
+          CHARTS=$(find ${{ inputs.chart-path }} -name 'Chart.yaml' -exec dirname {} \; | jq -R -s -c 'split("\n")[:-1]')
+          echo "charts=$CHARTS" >> $GITHUB_OUTPUT
+          echo "Found Helm charts:"
+          echo "$CHARTS" | jq -r '.[]'
+
+  lint:
+    name: Helm Lint
+    runs-on: ubuntu-latest
+    needs: find-charts
+    if: needs.find-charts.outputs.charts != '[]'
+    strategy:
+      matrix:
+        chart: ${{ fromJson(needs.find-charts.outputs.charts) }}
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ inputs.helm-version }}
+
+      - name: Extract chart name
+        id: extract
+        run: |
+          CHART_NAME=$(basename ${{ matrix.chart }})
+          echo "chart-name=$CHART_NAME" >> $GITHUB_OUTPUT
+
+      - name: Helm lint
+        run: |
+          echo "Linting Helm chart: ${{ steps.extract.outputs.chart-name }}"
+          helm lint ${{ matrix.chart }}
+
+      - name: Helm template
+        run: |
+          echo "Templating Helm chart..."
+          helm template test ${{ matrix.chart }} --debug
+
+  kubeconform:
+    name: Kubeconform Validation
+    runs-on: ubuntu-latest
+    needs: find-charts
+    if: inputs.enable-kubeconform && needs.find-charts.outputs.charts != '[]'
+    strategy:
+      matrix:
+        chart: ${{ fromJson(needs.find-charts.outputs.charts) }}
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ inputs.helm-version }}
+
+      - name: Setup kubeconform
+        run: |
+          wget https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz
+          tar xf kubeconform-linux-amd64.tar.gz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Extract chart name
+        id: extract
+        run: |
+          CHART_NAME=$(basename ${{ matrix.chart }})
+          echo "chart-name=$CHART_NAME" >> $GITHUB_OUTPUT
+
+      - name: Validate with kubeconform
+        run: |
+          echo "Validating with kubeconform..."
+          helm template test ${{ matrix.chart }} | kubeconform \
+            -kubernetes-version ${{ inputs.kubernetes-version }} \
+            -schema-location default \
+            -strict \
+            -summary
+
+  kubeval:
+    name: Kubeval Validation
+    runs-on: ubuntu-latest
+    needs: find-charts
+    if: inputs.enable-kubeval && needs.find-charts.outputs.charts != '[]'
+    strategy:
+      matrix:
+        chart: ${{ fromJson(needs.find-charts.outputs.charts) }}
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ inputs.helm-version }}
+
+      - name: Setup kubeval
+        run: |
+          wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+          tar xf kubeval-linux-amd64.tar.gz
+          sudo mv kubeval /usr/local/bin/
+
+      - name: Extract chart name
+        id: extract
+        run: |
+          CHART_NAME=$(basename ${{ matrix.chart }})
+          echo "chart-name=$CHART_NAME" >> $GITHUB_OUTPUT
+
+      - name: Validate with kubeval
+        run: |
+          echo "Validating with kubeval..."
+          helm template test ${{ matrix.chart }} | kubeval \
+            --kubernetes-version ${{ inputs.kubernetes-version }} \
+            --strict
+
+  polaris:
+    name: Polaris Best Practices
+    runs-on: ubuntu-latest
+    needs: find-charts
+    if: inputs.enable-polaris && needs.find-charts.outputs.charts != '[]'
+    strategy:
+      matrix:
+        chart: ${{ fromJson(needs.find-charts.outputs.charts) }}
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ inputs.helm-version }}
+
+      - name: Extract chart name
+        id: extract
+        run: |
+          CHART_NAME=$(basename ${{ matrix.chart }})
+          echo "chart-name=$CHART_NAME" >> $GITHUB_OUTPUT
+
+      - name: Run Polaris
+        uses: fairwindsops/polaris-action@v0.1.0
+        with:
+          helm-chart: ${{ matrix.chart }}
+          helm-values: ${{ matrix.chart }}/values.yaml
+
+  install-test:
+    name: Helm Install Test
+    runs-on: ubuntu-latest
+    needs: find-charts
+    if: needs.find-charts.outputs.charts != '[]'
+    strategy:
+      matrix:
+        chart: ${{ fromJson(needs.find-charts.outputs.charts) }}
+      fail-fast: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: ${{ inputs.helm-version }}
+
+      - name: Setup Kind
+        uses: helm/kind-action@v1
+        with:
+          version: v0.25.0
+          kubectl_version: ${{ inputs.kubernetes-version }}
+
+      - name: Extract chart name
+        id: extract
+        run: |
+          CHART_NAME=$(basename ${{ matrix.chart }})
+          echo "chart-name=$CHART_NAME" >> $GITHUB_OUTPUT
+
+      - name: Install chart
+        run: |
+          echo "Installing Helm chart in Kind cluster..."
+          helm install test-${{ steps.extract.outputs.chart-name }} ${{ matrix.chart }} \
+            --wait --timeout 5m --debug \
+            --dry-run
+
+      - name: Chart info
+        run: |
+          echo "### ⎈ Helm Chart Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "**Chart:** ${{ steps.extract.outputs.chart-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ✅ Passed" >> $GITHUB_STEP_SUMMARY

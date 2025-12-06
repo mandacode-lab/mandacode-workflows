@@ -1,0 +1,176 @@
+name: Go Project Release
+
+on:
+  workflow_call:
+    inputs:
+      dockerfile-path:
+        description: "Path to Dockerfiles directory"
+        required: false
+        type: string
+        default: "build"
+      dockerfile-pattern:
+        description: "Dockerfile pattern"
+        required: false
+        type: string
+        default: "Dockerfile.*"
+      build-context:
+        description: "Docker build context path"
+        required: false
+        type: string
+        default: "."
+      registry:
+        description: "Docker registry"
+        required: false
+        type: string
+        default: "ghcr.io"
+      image-prefix:
+        description: "Image name prefix (e.g., owner/repo)"
+        required: true
+        type: string
+      platforms:
+        description: "Target platforms"
+        required: false
+        type: string
+        default: "linux/amd64,linux/arm64"
+      enable-helm-release:
+        description: "Enable Helm chart release"
+        required: false
+        type: boolean
+        default: false
+      helm-chart-path:
+        description: "Path to Helm charts directory"
+        required: false
+        type: string
+        default: "helm"
+      helm-registry-path:
+        description: "Helm chart registry path"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      registry-username:
+        description: "Registry username"
+        required: true
+      registry-password:
+        description: "Registry password/token"
+        required: true
+
+permissions:
+  actions: read
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  docker-release:
+    name: Docker Release
+    uses: ./.github/workflows/dockerfile_build_and_push.yml
+    with:
+      dockerfile-path: ${{ inputs.dockerfile-path }}
+      dockerfile-pattern: "Dockerfile.*"
+      build-context: ${{ inputs.build-context }}
+      registry: ${{ inputs.registry }}
+      image-prefix: ${{ inputs.image-prefix }}
+      tag-strategy: "tag"
+      additional-tags: "latest"
+      platforms: ${{ inputs.platforms }}
+      enable-provenance: true
+      enable-sbom: true
+    secrets:
+      registry-username: ${{ secrets.registry-username }}
+      registry-password: ${{ secrets.registry-password }}
+
+  migration-release:
+    name: Migration Release
+    uses: ./.github/workflows/migration_build_and_push.yml
+    with:
+      dockerfile-path: ${{ inputs.dockerfile-path }}
+      registry: ${{ inputs.registry }}
+      image-prefix: ${{ inputs.image-prefix }}
+    secrets:
+      registry-username: ${{ secrets.registry-username }}
+      registry-password: ${{ secrets.registry-password }}
+
+  helm-release:
+    name: Helm Release
+    if: inputs.enable-helm-release
+    needs: docker-release
+    uses: ./.github/workflows/helm_chart_build_and_push.yml
+    with:
+      chart-path: ${{ inputs.helm-chart-path }}
+      helm-version: "v3.16.3"
+      registry: ${{ inputs.registry }}
+      registry-path: ${{ inputs.helm-registry-path != '' && inputs.helm-registry-path || format('{0}/charts', inputs.image-prefix) }}
+      version-strategy: "tag"
+      app-version-strategy: "tag"
+      enable-signing: false
+    secrets:
+      registry-username: ${{ secrets.registry-username }}
+      registry-password: ${{ secrets.registry-password }}
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [docker-release, migration-release]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 ${{ github.ref_name }}^ 2>/dev/null || echo "")
+
+          if [ -z "$PREV_TAG" ]; then
+            CHANGELOG="First release"
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" $PREV_TAG..${{ github.ref_name }})
+          fi
+
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          body: |
+            ## 🚀 Release ${{ github.ref_name }}
+
+            ### 📦 Docker Images
+            All images published to `${{ inputs.registry }}/${{ inputs.image-prefix }}` with tags:
+            - `${{ steps.version.outputs.version }}`
+            - `latest`
+
+            Pull images:
+            ```bash
+            docker pull ${{ inputs.registry }}/${{ inputs.image-prefix }}/[service-name]:${{ steps.version.outputs.version }}
+            ```
+
+            ### 🗄️ Migration Images
+            Migration images use content-based hashing for efficiency:
+            ```bash
+            # Always use :latest for migrations (points to current hash)
+            docker pull ${{ inputs.registry }}/${{ inputs.image-prefix }}/inventory-migration:latest
+            docker pull ${{ inputs.registry }}/${{ inputs.image-prefix }}/subscription-migration:latest
+            docker pull ${{ inputs.registry }}/${{ inputs.image-prefix }}/order-migration:latest
+            ```
+
+            ${{ inputs.enable-helm-release && format('### ⎈ Helm Charts\n```bash\nhelm install my-release oci://{0}/{1}/[chart-name] --version {2}\n```\n', inputs.registry, inputs.helm-registry-path != '' && inputs.helm-registry-path || format('{0}/charts', inputs.image-prefix), steps.version.outputs.version) || '' }}
+
+            ### 📝 Changes
+            ${{ steps.changelog.outputs.changelog }}
+          draft: false
+          prerelease: false

@@ -1,0 +1,112 @@
+name: Go Project Pull Request Check
+
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        description: "Go version to use"
+        required: false
+        type: string
+        default: "1.25.5"
+      build-path:
+        description: "Path to build"
+        required: false
+        type: string
+        default: "./..."
+      test-path:
+        description: "Path to test"
+        required: false
+        type: string
+        default: "./..."
+      test-flags:
+        description: "Additional test flags"
+        required: false
+        type: string
+        default: "-v -race"
+      enable-coverage:
+        description: "Enable coverage report"
+        required: false
+        type: boolean
+        default: true
+      coverage-threshold:
+        description: "Minimum coverage percentage"
+        required: false
+        type: number
+        default: 0
+      lint-version:
+        description: "golangci-lint version"
+        required: false
+        type: string
+        default: "latest"
+      lint-args:
+        description: "golangci-lint arguments"
+        required: false
+        type: string
+        default: "./..."
+      enable-security-scan:
+        description: "Enable security scanning"
+        required: false
+        type: boolean
+        default: true
+      enable-dockerfile-test:
+        description: "Enable Dockerfile testing"
+        required: false
+        type: boolean
+        default: true
+      dockerfile-path:
+        description: "Path to Dockerfiles directory"
+        required: false
+        type: string
+        default: "build"
+      dockerfile-pattern:
+        description: "Dockerfile pattern"
+        required: false
+        type: string
+        default: "Dockerfile.*"
+      enable-helm-test:
+        description: "Enable Helm chart testing"
+        required: false
+        type: boolean
+        default: false
+      helm-chart-path:
+        description: "Path to Helm charts directory"
+        required: false
+        type: string
+        default: "helm"
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+  security-events: write
+  packages: read
+
+jobs:
+  go-check:
+    name: Go Check
+    uses: ./.github/workflows/go_pull_request.yml
+    with:
+      go-version: ${{ inputs.go-version }}
+      build-path: ${{ inputs.build-path }}
+      test-path: ${{ inputs.test-path }}
+      test-flags: ${{ inputs.test-flags }}
+      enable-coverage: ${{ inputs.enable-coverage }}
+      coverage-threshold: ${{ inputs.coverage-threshold }}
+      lint-version: ${{ inputs.lint-version }}
+      lint-args: ${{ inputs.lint-args }}
+      enable-security-scan: ${{ inputs.enable-security-scan }}
+
+  dockerfile-test:
+    name: Dockerfile Test
+    if: inputs.enable-dockerfile-test
+    uses: ./.github/workflows/dockerfile_test.yml
+    with:
+      dockerfile-path: ${{ inputs.dockerfile-path }}
+      dockerfile-pattern: ${{ inputs.dockerfile-pattern }}
+
+  helm-test:
+    name: Helm Chart Test
+    if: inputs.enable-helm-test
+    uses: ./.github/workflows/helm_chart_test.yml
+    with:
+      chart-path: ${{ inputs.helm-chart-path }}
