@@ -8,65 +8,51 @@ on:
         required: false
         type: string
         default: "ghcr.io"
-      image-prefix:
-        description: "Image name prefix (e.g., owner/repo)"
-        required: true
-        type: string
-      dockerfile-path:
-        description: "Path to Dockerfiles directory"
+      tag-prefix:
+        description: "Tag prefix (e.g., v for v1.0.0)"
         required: false
         type: string
-        default: "build"
-      dockerfile-pattern:
-        description: "Dockerfile pattern to match"
+        default: "v"
+      migration-tag-prefix:
+        description: "Migration tag prefix (e.g., mig for mig1.0.0)"
         required: false
         type: string
-        default: "Dockerfile.*"
-      dockerfile-exclude-pattern:
-        description: "Dockerfile pattern to exclude"
+        default: "mig"
+      images:
+        description: "JSON array of image configurations [{name, dockerfile}]"
         required: false
         type: string
-        default: "Dockerfile.migration"
+        default: '[{"name": "${{ github.event.repository.name }}", "dockerfile": "Dockerfile"}]'
+      migration-images:
+        description: "JSON array of migration image configurations [{name, dockerfile}]"
+        required: false
+        type: string
+        default: "[]"
+      base-path:
+        description: "Base path for Dockerfiles (prepended to dockerfile paths)"
+        required: false
+        type: string
+        default: ""
       build-context:
         description: "Docker build context path"
         required: false
         type: string
         default: "."
       platforms:
-        description: "Target platforms"
+        description: "Target platforms (comma-separated)"
         required: false
         type: string
         default: "linux/amd64,linux/arm64"
-      enable-migration-release:
-        description: "Enable migration release"
+      enable-provenance:
+        description: "Enable build provenance attestation"
         required: false
         type: boolean
-        default: false
-      migration-docker-image:
-        description: "Path to migration Dockerfile"
-        required: false
-        type: string
-        default: "Dockerfile.migration"
-      migration-dir:
-        description: "Path to migration directory"
-        required: false
-        type: string
-        default: "migrations"
-      enable-helm-release:
-        description: "Enable Helm chart release"
+        default: true
+      enable-sbom:
+        description: "Enable SBOM attestation"
         required: false
         type: boolean
-        default: false
-      helm-chart-name:
-        description: "Helm chart name (e.g., owner/charts/app)"
-        required: false
-        type: string
-        default: ""
-      helm-chart-dir:
-        description: "Path to Helm chart directory"
-        required: false
-        type: string
-        default: "helm"
+        default: true
     secrets:
       registry-username:
         description: "Registry username"
@@ -77,97 +63,79 @@ on:
 
 permissions:
   actions: read
-  contents: write
+  contents: read
   packages: write
   id-token: write
   attestations: write
 
 jobs:
-  find-dockerfiles:
-    name: Find Dockerfiles
+  prepare-release:
+    name: Prepare Release
     runs-on: ubuntu-latest
     outputs:
-      dockerfiles: ${{ steps.find.outputs.dockerfiles }}
+      release-tag: ${{ steps.tag.outputs.release-tag }}
+      is-migration: ${{ steps.tag.outputs.is-migration }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-
-      - name: Find Dockerfiles
-        id: find
-        run: |
-          # Find all Dockerfiles matching pattern, excluding specified pattern
-          DOCKERFILES=$(find ${{ inputs.dockerfile-path }} -type f -name '${{ inputs.dockerfile-pattern }}' ! -name '${{ inputs.dockerfile-exclude-pattern }}' | jq -R -s -c 'split("\n")[:-1]')
-          echo "dockerfiles=$DOCKERFILES" >> $GITHUB_OUTPUT
-          echo "Found Dockerfiles:"
-          echo "  Pattern: ${{ inputs.dockerfile-pattern }}"
-          echo "  Exclude: ${{ inputs.dockerfile-exclude-pattern }}"
-          echo "$DOCKERFILES" | jq -r '.[]'
-
-  docker-release:
-    name: Docker Release
-    runs-on: ubuntu-latest
-    needs: find-dockerfiles
-    if: needs.find-dockerfiles.outputs.dockerfiles != '[]'
-    strategy:
-      matrix:
-        dockerfile: ${{ fromJson(needs.find-dockerfiles.outputs.dockerfiles) }}
-      fail-fast: false
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Extract image name
-        id: extract
-        run: |
-          DOCKERFILE_NAME=$(basename ${{ matrix.dockerfile }})
-          BINARY=${DOCKERFILE_NAME#Dockerfile.}
-          IMAGE_NAME="${{ inputs.image-prefix }}/${BINARY}"
-
-          echo "binary=$BINARY" >> $GITHUB_OUTPUT
-          echo "image-name=$IMAGE_NAME" >> $GITHUB_OUTPUT
-          echo "Image: $IMAGE_NAME"
-
-      - name: Build and push
-        uses: ./.github/workflows/dockerfile_build_and_push.yml
         with:
-          image-name: ${{ steps.extract.outputs.image-name }}
-          dockerfile-path: ${{ matrix.dockerfile }}
-          build-context: ${{ inputs.build-context }}
-          registry: ${{ inputs.registry }}
-          tag-strategy: "tag"
-          additional-tags: "latest"
-          platforms: ${{ inputs.platforms }}
-          enable-provenance: true
-          enable-sbom: true
-        secrets:
-          registry-username: ${{ secrets.registry-username }}
-          registry-password: ${{ secrets.registry-password }}
+          fetch-depth: 0
 
-  migration-release:
-    name: Migration Release
-    if: inputs.enable-migration-release
-    uses: ./.github/workflows/migration_build_and_push.yml
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ ${{ github.ref_type }} != "tag" ]; then
+            echo "Not a tag ref, skipping tag determination."
+            exit 0
+          fi
+          TAG_NAME="${{ github.ref_name }}"
+          PREFIX="${{ inputs.tag-prefix }}"
+          MIG_PREFIX="${{ inputs.migration-tag-prefix }}"
+          if [[ "$TAG_NAME" == "$MIG_PREFIX"* ]]; then
+            RELEASE_TAG="${TAG_NAME#$MIG_PREFIX}"
+            IS_MIGRATION="true"
+          elif [[ "$TAG_NAME" == "$PREFIX"* ]]; then
+            RELEASE_TAG="${TAG_NAME#$PREFIX}"
+            IS_MIGRATION="false"
+          else
+            echo "Tag does not match expected prefixes."
+            exit 1
+          fi
+
+          echo "release-tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
+          echo "is-migration=$IS_MIGRATION" >> $GITHUB_OUTPUT
+
+  build-and-push:
+    name: Build and Push Docker Image
+    uses: ./.github/workflows/dockerfile_build_and_push.yml
     with:
-      image-name: ${{ inputs.image-prefix }}/migration
-      migration-dir: ${{ inputs.migration-dir }}
-      dockerfile-path: ${{ inputs.migration-docker-image }}
+      images: ${{ inputs.images }}
+      base-path: ${{ inputs.base-path }}
+      build-context: ${{ inputs.build-context }}
       registry: ${{ inputs.registry }}
+      tag: ${{ github.ref_name }}
+      tag-prefix: ${{ inputs.tag-prefix }}
+      platforms: ${{ inputs.platforms }}
+      enable-provenance: ${{ inputs.enable-provenance }}
+      enable-sbom: ${{ inputs.enable-sbom }}
     secrets:
       registry-username: ${{ secrets.registry-username }}
       registry-password: ${{ secrets.registry-password }}
 
-  helm-release:
-    name: Helm Release
-    if: inputs.enable-helm-release
-    needs: docker-release
-    uses: ./.github/workflows/helm_chart_build_and_push.yml
+  build-and-push-migration:
+    name: Build and Push Migration Docker Image
+    if: startsWith(github.ref_name, inputs.migration-tag-prefix)
+    uses: ./.github/workflows/dockerfile_build_and_push.yml
     with:
-      chart-name: ${{ inputs.helm-chart-name }}
-      chart-dir: ${{ inputs.helm-chart-dir }}
+      images: ${{ inputs.migration-images }}
+      base-path: ${{ inputs.base-path }}
+      build-context: ${{ inputs.build-context }}
       registry: ${{ inputs.registry }}
-      version-strategy: "tag"
-      app-version-strategy: "tag"
-      enable-signing: false
+      tag: ${{ github.ref_name }}
+      tag-prefix: ${{ inputs.migration-tag-prefix }}
+      platforms: ${{ inputs.platforms }}
+      enable-provenance: ${{ inputs.enable-provenance }}
+      enable-sbom: ${{ inputs.enable-sbom }}
     secrets:
       registry-username: ${{ secrets.registry-username }}
       registry-password: ${{ secrets.registry-password }}

@@ -3,10 +3,15 @@ name: Helm Chart Test
 on:
   workflow_call:
     inputs:
-      chart-dir:
-        description: 'Path to Helm chart directory (containing Chart.yaml)'
+      charts:
+        description: 'JSON array of chart directories [{dir}]'
         required: true
         type: string
+      base-path:
+        description: 'Base path for Helm charts (prepended to chart dirs)'
+        required: false
+        type: string
+        default: ''
       helm-version:
         description: 'Helm version to use'
         required: false
@@ -41,6 +46,11 @@ jobs:
   lint:
     name: Helm Lint
     runs-on: ubuntu-latest
+    if: fromJson(inputs.charts) != null && fromJson(inputs.charts)[0] != null
+    strategy:
+      matrix:
+        item: ${{ fromJson(inputs.charts) }}
+      fail-fast: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -50,20 +60,34 @@ jobs:
         with:
           version: ${{ inputs.helm-version }}
 
+      - name: Resolve paths
+        id: paths
+        run: |
+          CHART_DIR="${{ matrix.item.dir }}"
+          if [ -n "${{ inputs.base-path }}" ]; then
+            CHART_DIR="${{ inputs.base-path }}/${CHART_DIR}"
+          fi
+          echo "chart-dir=$CHART_DIR" >> $GITHUB_OUTPUT
+          echo "Chart directory: $CHART_DIR"
+
       - name: Helm lint
         run: |
           echo "Linting Helm chart..."
-          helm lint ${{ inputs.chart-dir }}
+          helm lint ${{ steps.paths.outputs.chart-dir }}
 
       - name: Helm template
         run: |
           echo "Templating Helm chart..."
-          helm template test ${{ inputs.chart-dir }} --debug
+          helm template test ${{ steps.paths.outputs.chart-dir }} --debug
 
   kubeconform:
     name: Kubeconform Validation
     runs-on: ubuntu-latest
-    if: inputs.enable-kubeconform
+    if: inputs.enable-kubeconform && fromJson(inputs.charts) != null && fromJson(inputs.charts)[0] != null
+    strategy:
+      matrix:
+        item: ${{ fromJson(inputs.charts) }}
+      fail-fast: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -79,10 +103,19 @@ jobs:
           tar xf kubeconform-linux-amd64.tar.gz
           sudo mv kubeconform /usr/local/bin/
 
+      - name: Resolve paths
+        id: paths
+        run: |
+          CHART_DIR="${{ matrix.item.dir }}"
+          if [ -n "${{ inputs.base-path }}" ]; then
+            CHART_DIR="${{ inputs.base-path }}/${CHART_DIR}"
+          fi
+          echo "chart-dir=$CHART_DIR" >> $GITHUB_OUTPUT
+
       - name: Validate with kubeconform
         run: |
           echo "Validating with kubeconform..."
-          helm template test ${{ inputs.chart-dir }} | kubeconform \
+          helm template test ${{ steps.paths.outputs.chart-dir }} | kubeconform \
             -kubernetes-version ${{ inputs.kubernetes-version }} \
             -schema-location default \
             -strict \
@@ -91,7 +124,11 @@ jobs:
   kubeval:
     name: Kubeval Validation
     runs-on: ubuntu-latest
-    if: inputs.enable-kubeval
+    if: inputs.enable-kubeval && fromJson(inputs.charts) != null && fromJson(inputs.charts)[0] != null
+    strategy:
+      matrix:
+        item: ${{ fromJson(inputs.charts) }}
+      fail-fast: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -107,17 +144,30 @@ jobs:
           tar xf kubeval-linux-amd64.tar.gz
           sudo mv kubeval /usr/local/bin/
 
+      - name: Resolve paths
+        id: paths
+        run: |
+          CHART_DIR="${{ matrix.item.dir }}"
+          if [ -n "${{ inputs.base-path }}" ]; then
+            CHART_DIR="${{ inputs.base-path }}/${CHART_DIR}"
+          fi
+          echo "chart-dir=$CHART_DIR" >> $GITHUB_OUTPUT
+
       - name: Validate with kubeval
         run: |
           echo "Validating with kubeval..."
-          helm template test ${{ inputs.chart-dir }} | kubeval \
+          helm template test ${{ steps.paths.outputs.chart-dir }} | kubeval \
             --kubernetes-version ${{ inputs.kubernetes-version }} \
             --strict
 
   polaris:
     name: Polaris Best Practices
     runs-on: ubuntu-latest
-    if: inputs.enable-polaris
+    if: inputs.enable-polaris && fromJson(inputs.charts) != null && fromJson(inputs.charts)[0] != null
+    strategy:
+      matrix:
+        item: ${{ fromJson(inputs.charts) }}
+      fail-fast: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -127,15 +177,29 @@ jobs:
         with:
           version: ${{ inputs.helm-version }}
 
+      - name: Resolve paths
+        id: paths
+        run: |
+          CHART_DIR="${{ matrix.item.dir }}"
+          if [ -n "${{ inputs.base-path }}" ]; then
+            CHART_DIR="${{ inputs.base-path }}/${CHART_DIR}"
+          fi
+          echo "chart-dir=$CHART_DIR" >> $GITHUB_OUTPUT
+
       - name: Run Polaris
         uses: fairwindsops/polaris-action@v0.1.0
         with:
-          helm-chart: ${{ inputs.chart-dir }}
-          helm-values: ${{ inputs.chart-dir }}/values.yaml
+          helm-chart: ${{ steps.paths.outputs.chart-dir }}
+          helm-values: ${{ steps.paths.outputs.chart-dir }}/values.yaml
 
   install-test:
     name: Helm Install Test
     runs-on: ubuntu-latest
+    if: fromJson(inputs.charts) != null && fromJson(inputs.charts)[0] != null
+    strategy:
+      matrix:
+        item: ${{ fromJson(inputs.charts) }}
+      fail-fast: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -151,15 +215,24 @@ jobs:
           version: v0.25.0
           kubectl_version: ${{ inputs.kubernetes-version }}
 
+      - name: Resolve paths
+        id: paths
+        run: |
+          CHART_DIR="${{ matrix.item.dir }}"
+          if [ -n "${{ inputs.base-path }}" ]; then
+            CHART_DIR="${{ inputs.base-path }}/${CHART_DIR}"
+          fi
+          echo "chart-dir=$CHART_DIR" >> $GITHUB_OUTPUT
+
       - name: Install chart
         run: |
           echo "Installing Helm chart in Kind cluster..."
-          helm install test-release ${{ inputs.chart-dir }} \
+          helm install test-release ${{ steps.paths.outputs.chart-dir }} \
             --wait --timeout 5m --debug \
             --dry-run
 
       - name: Chart info
         run: |
           echo "### ⎈ Helm Chart Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "**Chart:** ${{ inputs.chart-dir }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Chart:** ${{ steps.paths.outputs.chart-dir }}" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** ✅ Passed" >> $GITHUB_STEP_SUMMARY

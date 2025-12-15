@@ -3,14 +3,15 @@ name: Helm Chart Build and Push
 on:
   workflow_call:
     inputs:
-      chart-name:
-        description: 'Full chart name without registry (e.g., owner/charts/app)'
+      charts:
+        description: 'JSON array of chart configurations [{dir}]'
         required: true
         type: string
-      chart-dir:
-        description: 'Path to Helm chart directory (containing Chart.yaml)'
-        required: true
+      base-path:
+        description: 'Base path for Helm charts (prepended to chart dirs)'
+        required: false
         type: string
+        default: ''
       registry:
         description: 'OCI registry for Helm charts (e.g., ghcr.io, registry-1.docker.io)'
         required: false
@@ -21,26 +22,6 @@ on:
         required: false
         type: string
         default: 'v3.16.3'
-      version-strategy:
-        description: 'Version strategy: tag (use git tag), chart (use Chart.yaml version), auto (auto-increment)'
-        required: false
-        type: string
-        default: 'chart'
-      version-override:
-        description: 'Override version (leave empty to use strategy)'
-        required: false
-        type: string
-        default: ''
-      app-version-strategy:
-        description: 'App version strategy: tag (use git tag), sha (use commit sha), custom'
-        required: false
-        type: string
-        default: 'tag'
-      app-version-override:
-        description: 'Override app version (leave empty to use strategy)'
-        required: false
-        type: string
-        default: ''
       enable-signing:
         description: 'Enable chart signing with GPG'
         required: false
@@ -56,6 +37,9 @@ on:
       gpg-private-key:
         description: 'GPG private key for signing (base64 encoded)'
         required: false
+      gpg-key-name:
+        description: 'GPG key name for signing'
+        required: false
       gpg-passphrase:
         description: 'GPG key passphrase'
         required: false
@@ -69,6 +53,11 @@ jobs:
   package-and-push:
     name: Package and Push
     runs-on: ubuntu-latest
+    if: fromJson(inputs.charts) != null && fromJson(inputs.charts)[0] != null
+    strategy:
+      matrix:
+        chart: ${{ fromJson(inputs.charts) }}
+      fail-fast: false
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -80,78 +69,32 @@ jobs:
         with:
           version: ${{ inputs.helm-version }}
 
+      - name: Resolve paths
+        id: paths
+        run: |
+          CHART_DIR="${{ matrix.chart.dir }}"
+          if [ -n "${{ inputs.base-path }}" ]; then
+            CHART_DIR="${{ inputs.base-path }}/${CHART_DIR}"
+          fi
+          echo "chart-dir=$CHART_DIR" >> $GITHUB_OUTPUT
+          echo "Chart directory: $CHART_DIR"
+
       - name: Extract chart info
         id: extract
         run: |
-          CHART_VERSION=$(yq eval '.version' ${{ inputs.chart-dir }}/Chart.yaml)
-          CHART_APP_VERSION=$(yq eval '.appVersion' ${{ inputs.chart-dir }}/Chart.yaml)
+          CHART_NAME=$(yq eval '.name' ${{ steps.paths.outputs.chart-dir }}/Chart.yaml)
+          CHART_VERSION=$(yq eval '.version' ${{ steps.paths.outputs.chart-dir }}/Chart.yaml)
+          CHART_APP_VERSION=$(yq eval '.appVersion' ${{ steps.paths.outputs.chart-dir }}/Chart.yaml)
 
+          echo "chart-name=$CHART_NAME" >> $GITHUB_OUTPUT
           echo "chart-version=$CHART_VERSION" >> $GITHUB_OUTPUT
           echo "app-version=$CHART_APP_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Determine version
-        id: version
+      - name: Prepare chart
         run: |
-          # Determine chart version
-          if [ -n "${{ inputs.version-override }}" ]; then
-            VERSION="${{ inputs.version-override }}"
-          else
-            case "${{ inputs.version-strategy }}" in
-              tag)
-                if [ "${{ github.ref_type }}" = "tag" ]; then
-                  VERSION="${{ github.ref_name }}"
-                  VERSION="${VERSION#v}"  # Remove 'v' prefix if exists
-                else
-                  echo "Error: tag strategy requires a git tag"
-                  exit 1
-                fi
-                ;;
-              chart)
-                VERSION="${{ steps.extract.outputs.chart-version }}"
-                ;;
-              auto)
-                VERSION="${{ steps.extract.outputs.chart-version }}"
-                # Auto-increment patch version
-                IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-                PATCH=$((PATCH + 1))
-                VERSION="${MAJOR}.${MINOR}.${PATCH}"
-                ;;
-            esac
-          fi
-
-          # Determine app version
-          if [ -n "${{ inputs.app-version-override }}" ]; then
-            APP_VERSION="${{ inputs.app-version-override }}"
-          else
-            case "${{ inputs.app-version-strategy }}" in
-              tag)
-                if [ "${{ github.ref_type }}" = "tag" ]; then
-                  APP_VERSION="${{ github.ref_name }}"
-                else
-                  APP_VERSION="dev-$(echo ${{ github.sha }} | cut -c1-7)"
-                fi
-                ;;
-              sha)
-                APP_VERSION="sha-$(echo ${{ github.sha }} | cut -c1-7)"
-                ;;
-              custom)
-                APP_VERSION="${{ steps.extract.outputs.app-version }}"
-                ;;
-            esac
-          fi
-
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "app-version=$APP_VERSION" >> $GITHUB_OUTPUT
-          echo "Chart version: $VERSION"
-          echo "App version: $APP_VERSION"
-
-      - name: Update Chart.yaml versions
-        run: |
-          yq eval -i '.version = "${{ steps.version.outputs.version }}"' ${{ inputs.chart-dir }}/Chart.yaml
-          yq eval -i '.appVersion = "${{ steps.version.outputs.app-version }}"' ${{ inputs.chart-dir }}/Chart.yaml
-
-          echo "Updated Chart.yaml:"
-          cat ${{ inputs.chart-dir }}/Chart.yaml
+          echo "Chart version: ${{ steps.extract.outputs.chart-version }}"
+          echo "Chart appVersion: ${{ steps.extract.outputs.app-version }}"
+          echo "Packaging chart with existing versions..."
 
       - name: Setup GPG
         if: inputs.enable-signing
@@ -164,25 +107,17 @@ jobs:
           mkdir -p .helm-packages
 
           if [ "${{ inputs.enable-signing }}" = "true" ]; then
-            helm package ${{ inputs.chart-dir }} \
+            helm package ${{ steps.paths.outputs.chart-dir }} \
               --destination .helm-packages \
               --sign \
               --key "${{ secrets.gpg-key-name }}" \
               --keyring ~/.gnupg/pubring.gpg \
               --passphrase-file <(echo "${{ secrets.gpg-passphrase }}")
           else
-            helm package ${{ inputs.chart-dir }} --destination .helm-packages
+            helm package ${{ steps.paths.outputs.chart-dir }} --destination .helm-packages
           fi
 
           ls -la .helm-packages/
-
-      - name: Get chart package name
-        id: package
-        run: |
-          # Extract just the chart name from the full path
-          CHART_BASENAME=$(basename ${{ inputs.chart-name }})
-          PACKAGE_FILE=$(ls .helm-packages/${CHART_BASENAME}-${{ steps.version.outputs.version }}.tgz)
-          echo "package-file=$PACKAGE_FILE" >> $GITHUB_OUTPUT
 
       - name: Login to OCI registry
         run: |
@@ -192,25 +127,12 @@ jobs:
 
       - name: Push chart to OCI registry
         run: |
-          helm push "${{ steps.package.outputs.package-file }}" \
-            oci://${{ inputs.registry }}/${{ inputs.chart-name }}
+          CHART_PACKAGE=$(ls .helm-packages/${{ steps.extract.outputs.chart-name }}-${{ steps.extract.outputs.chart-version }}.tgz)
+          helm push "$CHART_PACKAGE" oci://${{ inputs.registry }}
 
           echo "✅ Chart pushed successfully"
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: ${{ steps.package.outputs.package-file }}
-
-      - name: Summary
-        run: |
-          echo "### ⎈ Helm Chart Published" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Chart:** \`${{ inputs.registry }}/${{ inputs.chart-name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "**App Version:** ${{ steps.version.outputs.app-version }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Install command:**" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "helm install my-release oci://${{ inputs.registry }}/${{ inputs.chart-name }} --version ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          subject-path: .helm-packages/${{ steps.extract.outputs.chart-name }}-${{ steps.extract.outputs.chart-version }}.tgz
