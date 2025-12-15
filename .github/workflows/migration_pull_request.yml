@@ -1,0 +1,147 @@
+name: Migration Pull Request Check
+
+on:
+  workflow_call:
+    inputs:
+      migration-dir:
+        description: "Path to migration directory containing VERSION file"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check-migration:
+    name: Check Migration Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check VERSION file exists
+        id: check-version-file
+        run: |
+          MIGRATION_DIR="${{ inputs.migration-dir }}"
+          VERSION_FILE="${MIGRATION_DIR}/VERSION"
+
+          if [ ! -f "$VERSION_FILE" ]; then
+            echo "❌ VERSION file not found at: $VERSION_FILE"
+            echo "exists=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+          echo "exists=true" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "✅ VERSION file exists: $VERSION"
+
+      - name: Get base branch
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="${{ github.base_ref }}"
+          else
+            BASE_REF="main"
+          fi
+          echo "ref=$BASE_REF" >> $GITHUB_OUTPUT
+          echo "Base branch: $BASE_REF"
+
+      - name: Check if migration files changed
+        id: migration-changed
+        run: |
+          BASE_REF="${{ steps.base.outputs.ref }}"
+          MIGRATION_DIR="${{ inputs.migration-dir }}"
+
+          # Get list of changed files in migration directory
+          CHANGED_FILES=$(git diff --name-only origin/$BASE_REF...HEAD -- "$MIGRATION_DIR" | grep -v "VERSION" || true)
+
+          if [ -n "$CHANGED_FILES" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "🔍 Migration files changed:"
+            echo "$CHANGED_FILES"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "✅ No migration files changed"
+          fi
+
+      - name: Check if VERSION changed
+        id: version-changed
+        if: steps.migration-changed.outputs.changed == 'true'
+        run: |
+          BASE_REF="${{ steps.base.outputs.ref }}"
+          MIGRATION_DIR="${{ inputs.migration-dir }}"
+          VERSION_FILE="${MIGRATION_DIR}/VERSION"
+
+          # Check if VERSION file was modified
+          VERSION_MODIFIED=$(git diff --name-only origin/$BASE_REF...HEAD -- "$VERSION_FILE" || true)
+
+          if [ -n "$VERSION_MODIFIED" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+
+            # Get old and new versions
+            OLD_VERSION=$(git show origin/$BASE_REF:"$VERSION_FILE" 2>/dev/null | tr -d '[:space:]' || echo "none")
+            NEW_VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]')
+
+            echo "old-version=$OLD_VERSION" >> $GITHUB_OUTPUT
+            echo "new-version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+            echo "✅ VERSION file changed:"
+            echo "  Old: $OLD_VERSION"
+            echo "  New: $NEW_VERSION"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "❌ VERSION file was not changed"
+          fi
+
+      - name: Validate VERSION change
+        if: steps.migration-changed.outputs.changed == 'true'
+        run: |
+          VERSION_CHANGED="${{ steps.version-changed.outputs.changed }}"
+
+          if [ "$VERSION_CHANGED" != "true" ]; then
+            echo "❌ Migration files were changed but VERSION was not updated!"
+            echo ""
+            echo "Please update the VERSION file in: ${{ inputs.migration-dir }}/VERSION"
+            exit 1
+          fi
+
+          echo "✅ Migration files and VERSION were both updated"
+
+      - name: Summary
+        if: always()
+        run: |
+          MIGRATION_DIR="${{ inputs.migration-dir }}"
+          VERSION="${{ steps.check-version-file.outputs.version }}"
+          MIGRATION_CHANGED="${{ steps.migration-changed.outputs.changed }}"
+          VERSION_CHANGED="${{ steps.version-changed.outputs.changed }}"
+
+          echo "### 🗄️ Migration Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Migration Directory:** \`$MIGRATION_DIR\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Current VERSION:** \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$MIGRATION_CHANGED" = "true" ]; then
+            OLD_VERSION="${{ steps.version-changed.outputs.old-version }}"
+            NEW_VERSION="${{ steps.version-changed.outputs.new-version }}"
+
+            echo "**Migration Files:** 🔄 Changed" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$VERSION_CHANGED" = "true" ]; then
+              echo "**VERSION File:** ✅ Changed (\`$OLD_VERSION\` → \`$NEW_VERSION\`)" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "✅ All checks passed!" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "**VERSION File:** ❌ Not changed" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "⚠️ Please update the VERSION file when modifying migrations!" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "**Migration Files:** ✅ No changes" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "ℹ️ No migration changes detected" >> $GITHUB_STEP_SUMMARY
+          fi
