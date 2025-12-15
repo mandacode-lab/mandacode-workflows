@@ -76,19 +76,19 @@ jobs:
           if [ -n "${{ inputs.base-path }}" ]; then
             CHART_DIR="${{ inputs.base-path }}/${CHART_DIR}"
           fi
-          echo "chart-dir=$CHART_DIR" >> $GITHUB_OUTPUT
+          echo "chart-dir=$CHART_DIR" >> "$GITHUB_OUTPUT"
           echo "Chart directory: $CHART_DIR"
 
       - name: Extract chart info
         id: extract
         run: |
-          CHART_NAME=$(yq eval '.name' ${{ steps.paths.outputs.chart-dir }}/Chart.yaml)
-          CHART_VERSION=$(yq eval '.version' ${{ steps.paths.outputs.chart-dir }}/Chart.yaml)
-          CHART_APP_VERSION=$(yq eval '.appVersion' ${{ steps.paths.outputs.chart-dir }}/Chart.yaml)
+          CHART_NAME=$(yq eval '.name' "${{ steps.paths.outputs.chart-dir }}/Chart.yaml")
+          CHART_VERSION=$(yq eval '.version' "${{ steps.paths.outputs.chart-dir }}/Chart.yaml")
+          CHART_APP_VERSION=$(yq eval '.appVersion' "${{ steps.paths.outputs.chart-dir }}/Chart.yaml")
 
-          echo "chart-name=$CHART_NAME" >> $GITHUB_OUTPUT
-          echo "chart-version=$CHART_VERSION" >> $GITHUB_OUTPUT
-          echo "app-version=$CHART_APP_VERSION" >> $GITHUB_OUTPUT
+          echo "chart-name=$CHART_NAME" >> "$GITHUB_OUTPUT"
+          echo "chart-version=$CHART_VERSION" >> "$GITHUB_OUTPUT"
+          echo "app-version=$CHART_APP_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Prepare chart
         run: |

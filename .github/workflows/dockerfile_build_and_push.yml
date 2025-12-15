@@ -87,7 +87,7 @@ jobs:
           if [ -n "${{ inputs.base-path }}" ]; then
             DOCKERFILE="${{ inputs.base-path }}/${DOCKERFILE}"
           fi
-          echo "dockerfile=$DOCKERFILE" >> $GITHUB_OUTPUT
+          echo "dockerfile=$DOCKERFILE" >> "$GITHUB_OUTPUT"
           echo "Dockerfile path: $DOCKERFILE"
 
       - name: Generate Docker tags
@@ -100,7 +100,7 @@ jobs:
           # Check if tag has expected prefix
           if [ -n "$PREFIX" ] && [[ ! "$TAG" == "$PREFIX"* ]]; then
             echo "Tag '$TAG' does not have expected prefix '$PREFIX'. Skipping build."
-            echo "should-build=false" >> $GITHUB_OUTPUT
+            echo "should-build=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -118,8 +118,8 @@ jobs:
             TAGS="${TAGS},${{ inputs.registry }}/${IMAGE_NAME}:latest"
           fi
 
-          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
-          echo "should-build=true" >> $GITHUB_OUTPUT
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+          echo "should-build=true" >> "$GITHUB_OUTPUT"
           echo "Generated tags: ${TAGS}"
 
       - name: Login to Registry

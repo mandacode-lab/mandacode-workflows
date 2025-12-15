@@ -67,7 +67,7 @@ jobs:
           if [ -n "${{ inputs.base-path }}" ]; then
             CHART_DIR="${{ inputs.base-path }}/${CHART_DIR}"
           fi
-          echo "chart-dir=$CHART_DIR" >> $GITHUB_OUTPUT
+          echo "chart-dir=$CHART_DIR" >> "$GITHUB_OUTPUT"
           echo "Chart directory: $CHART_DIR"
 
       - name: Helm lint
@@ -110,7 +110,7 @@ jobs:
           if [ -n "${{ inputs.base-path }}" ]; then
             CHART_DIR="${{ inputs.base-path }}/${CHART_DIR}"
           fi
-          echo "chart-dir=$CHART_DIR" >> $GITHUB_OUTPUT
+          echo "chart-dir=$CHART_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Validate with kubeconform
         run: |
@@ -151,7 +151,7 @@ jobs:
           if [ -n "${{ inputs.base-path }}" ]; then
             CHART_DIR="${{ inputs.base-path }}/${CHART_DIR}"
           fi
-          echo "chart-dir=$CHART_DIR" >> $GITHUB_OUTPUT
+          echo "chart-dir=$CHART_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Validate with kubeval
         run: |
@@ -184,7 +184,7 @@ jobs:
           if [ -n "${{ inputs.base-path }}" ]; then
             CHART_DIR="${{ inputs.base-path }}/${CHART_DIR}"
           fi
-          echo "chart-dir=$CHART_DIR" >> $GITHUB_OUTPUT
+          echo "chart-dir=$CHART_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Run Polaris
         uses: fairwindsops/polaris-action@v0.1.0
@@ -222,7 +222,7 @@ jobs:
           if [ -n "${{ inputs.base-path }}" ]; then
             CHART_DIR="${{ inputs.base-path }}/${CHART_DIR}"
           fi
-          echo "chart-dir=$CHART_DIR" >> $GITHUB_OUTPUT
+          echo "chart-dir=$CHART_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Install chart
         run: |
@@ -233,6 +233,8 @@ jobs:
 
       - name: Chart info
         run: |
-          echo "### ⎈ Helm Chart Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "**Chart:** ${{ steps.paths.outputs.chart-dir }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Status:** ✅ Passed" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "### ⎈ Helm Chart Test Results"
+            echo "**Chart:** ${{ steps.paths.outputs.chart-dir }}"
+            echo "**Status:** ✅ Passed"
+          } >> "$GITHUB_STEP_SUMMARY"

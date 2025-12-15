@@ -26,7 +26,7 @@ jobs:
       - name: Setup actionlint
         run: |
           go install github.com/rhysd/actionlint/cmd/actionlint@latest
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Run actionlint
         run: |
@@ -60,34 +60,38 @@ jobs:
 
       - name: Check workflow files
         run: |
-          echo "### 📋 Workflow Validation Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "### 📋 Workflow Validation Results"
+            echo ""
 
-          # Count workflow files
-          WORKFLOW_COUNT=$(find .github/workflows -name '*.yml' -o -name '*.yaml' | wc -l)
-          echo "**Total Workflows:** $WORKFLOW_COUNT" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+            # Count workflow files
+            WORKFLOW_COUNT=$(find .github/workflows -name '*.yml' -o -name '*.yaml' | wc -l)
+            echo "**Total Workflows:** $WORKFLOW_COUNT"
+            echo ""
 
-          # List workflows
-          echo "**Workflow Files:**" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          find .github/workflows -name '*.yml' -o -name '*.yaml' | sort >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+            # List workflows
+            echo "**Workflow Files:**"
+            echo '```'
+            find .github/workflows -name '*.yml' -o -name '*.yaml' | sort
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check for workflow_call consistency
         run: |
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Reusable Workflows:**" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          {
+            echo ""
+            echo "**Reusable Workflows:**"
+            echo '```'
 
-          # Find all workflow_call workflows
-          for file in .github/workflows/*.yml; do
-            if grep -q "workflow_call:" "$file"; then
-              echo "✓ $(basename $file)" >> $GITHUB_STEP_SUMMARY
-            fi
-          done
+            # Find all workflow_call workflows
+            for file in .github/workflows/*.yml; do
+              if grep -q "workflow_call:" "$file"; then
+                echo "✓ $(basename "$file")"
+              fi
+            done
 
-          echo '```' >> $GITHUB_STEP_SUMMARY
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   summary:
     name: Validation Summary
@@ -97,26 +101,28 @@ jobs:
     steps:
       - name: Generate summary
         run: |
-          echo "### ✅ Workflow Validation Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "### ✅ Workflow Validation Complete"
+            echo ""
 
-          if [ "${{ needs.actionlint.result }}" = "success" ]; then
-            echo "- ✅ actionlint: PASSED" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- ❌ actionlint: FAILED" >> $GITHUB_STEP_SUMMARY
-          fi
+            if [ "${{ needs.actionlint.result }}" = "success" ]; then
+              echo "- ✅ actionlint: PASSED"
+            else
+              echo "- ❌ actionlint: FAILED"
+            fi
 
-          if [ "${{ needs.yamllint.result }}" = "success" ]; then
-            echo "- ✅ yamllint: PASSED" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- ❌ yamllint: FAILED" >> $GITHUB_STEP_SUMMARY
-          fi
+            if [ "${{ needs.yamllint.result }}" = "success" ]; then
+              echo "- ✅ yamllint: PASSED"
+            else
+              echo "- ❌ yamllint: FAILED"
+            fi
 
-          if [ "${{ needs.validate-structure.result }}" = "success" ]; then
-            echo "- ✅ structure validation: PASSED" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- ❌ structure validation: FAILED" >> $GITHUB_STEP_SUMMARY
-          fi
+            if [ "${{ needs.validate-structure.result }}" = "success" ]; then
+              echo "- ✅ structure validation: PASSED"
+            else
+              echo "- ❌ structure validation: FAILED"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check overall status
         run: |

@@ -58,7 +58,7 @@ jobs:
           if [ -n "${{ inputs.base-path }}" ]; then
             DOCKERFILE="${{ inputs.base-path }}/${DOCKERFILE}"
           fi
-          echo "dockerfile=$DOCKERFILE" >> $GITHUB_OUTPUT
+          echo "dockerfile=$DOCKERFILE" >> "$GITHUB_OUTPUT"
           echo "Dockerfile path: $DOCKERFILE"
 
       - name: Run Hadolint

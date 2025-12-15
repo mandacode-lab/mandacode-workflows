@@ -84,7 +84,7 @@ jobs:
       - name: Determine tag
         id: tag
         run: |
-          if [ ${{ github.ref_type }} != "tag" ]; then
+          if [ "${{ github.ref_type }}" != "tag" ]; then
             echo "Not a tag ref, skipping tag determination."
             exit 0
           fi
