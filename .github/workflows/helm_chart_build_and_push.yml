@@ -147,7 +147,24 @@ jobs:
 
           ls -la .helm-packages/
 
+      - name: Check if chart version already exists
+        id: check
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          REPOSITORY: ${{ inputs.repository }}
+          CHART_NAME: ${{ steps.extract.outputs.chart-name }}
+          CHART_VERSION: ${{ steps.extract.outputs.chart-version }}
+        run: |
+          if helm pull "oci://${REGISTRY}/${REPOSITORY}/${CHART_NAME}" --version "${CHART_VERSION}" --destination /tmp 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "⚠️ Chart ${CHART_NAME}:${CHART_VERSION} already exists in registry"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "✅ Chart ${CHART_NAME}:${CHART_VERSION} does not exist, will push"
+          fi
+
       - name: Push chart to OCI registry
+        if: steps.check.outputs.exists == 'false'
         env:
           REGISTRY: ${{ inputs.registry }}
           REPOSITORY: ${{ inputs.repository }}
@@ -159,8 +176,16 @@ jobs:
 
           echo "✅ Chart pushed successfully to ${REGISTRY}/${REPOSITORY}"
 
+      - name: Skip push (already exists)
+        if: steps.check.outputs.exists == 'true'
+        env:
+          CHART_NAME: ${{ steps.extract.outputs.chart-name }}
+          CHART_VERSION: ${{ steps.extract.outputs.chart-version }}
+        run: |
+          echo "⏭️ Skipping push - ${CHART_NAME}:${CHART_VERSION} already exists in registry"
+
       - name: Generate artifact attestation
-        if: inputs.enable-provenance
+        if: inputs.enable-provenance && steps.check.outputs.exists == 'false'
         uses: actions/attest-build-provenance@v3
         with:
           subject-path: .helm-packages/${{ steps.extract.outputs.chart-name }}-${{ steps.extract.outputs.chart-version }}.tgz
