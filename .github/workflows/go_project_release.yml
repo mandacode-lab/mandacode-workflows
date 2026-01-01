@@ -72,7 +72,7 @@ on:
         required: false
         type: boolean
         default: true
-      charts:
+      helm-charts:
         description: "JSON array of chart configurations [{dir}]"
         required: false
         type: string
@@ -193,10 +193,10 @@ jobs:
 
   helm-package-and-push:
     name: Package and Push Helm Chart
-    if: inputs.enable-helm-release && fromJson(inputs.charts)[0] != null && startsWith(github.ref_name, inputs.tag-prefix)
+    if: inputs.enable-helm-release && fromJson(inputs.helm-charts)[0] != null && startsWith(github.ref_name, inputs.tag-prefix)
     uses: ./.github/workflows/helm_chart_build_and_push.yml
     with:
-      charts: ${{ inputs.charts }}
+      charts: ${{ inputs.helm-charts }}
       base-path: ${{ inputs.chart-base-path }}
       registry: ${{ inputs.helm-registry != '' && inputs.helm-registry || inputs.registry }}
       repository: ${{ inputs.helm-repository != '' && inputs.helm-repository || inputs.repository }}
