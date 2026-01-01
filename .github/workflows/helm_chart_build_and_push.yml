@@ -106,17 +106,22 @@ jobs:
           CHART_NAME=$(yq eval '.name' "${{ steps.paths.outputs.chart-dir }}/Chart.yaml")
           CHART_VERSION=$(yq eval '.version' "${{ steps.paths.outputs.chart-dir }}/Chart.yaml")
           CHART_APP_VERSION=$(yq eval '.appVersion' "${{ steps.paths.outputs.chart-dir }}/Chart.yaml")
+          CHART_TYPE=$(yq eval '.type // "application"' "${{ steps.paths.outputs.chart-dir }}/Chart.yaml")
 
           {
             echo "chart-name=$CHART_NAME"
             echo "chart-version=$CHART_VERSION"
             echo "app-version=$CHART_APP_VERSION"
+            echo "chart-type=$CHART_TYPE"
           } >> "$GITHUB_OUTPUT"
 
       - name: Prepare chart
         run: |
+          echo "Chart type: ${{ steps.extract.outputs.chart-type }}"
           echo "Chart version: ${{ steps.extract.outputs.chart-version }}"
-          echo "Chart appVersion: ${{ steps.extract.outputs.app-version }}"
+          if [ "${{ steps.extract.outputs.chart-type }}" != "library" ]; then
+            echo "Chart appVersion: ${{ steps.extract.outputs.app-version }}"
+          fi
           echo "Packaging chart with existing versions..."
 
       - name: Setup GPG

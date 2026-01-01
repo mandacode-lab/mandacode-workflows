@@ -4,26 +4,26 @@ on:
   workflow_call:
     inputs:
       charts:
-        description: 'JSON array of chart directories [{dir}]'
+        description: "JSON array of chart directories [{dir}]"
         required: true
         type: string
       base-path:
-        description: 'Base path for Helm charts (prepended to chart dirs)'
+        description: "Base path for Helm charts (prepended to chart dirs)"
         required: false
         type: string
-        default: ''
+        default: ""
       helm-version:
-        description: 'Helm version to use'
+        description: "Helm version to use"
         required: false
         type: string
-        default: 'v3.16.3'
+        default: "v3.16.3"
       kubernetes-version:
-        description: 'Kubernetes version for testing'
+        description: "Kubernetes version for testing"
         required: false
         type: string
-        default: 'v1.34.0'
+        default: "v1.35.0"
       enable-kubeconform:
-        description: 'Enable kubeconform validation'
+        description: "Enable kubeconform validation (ignored for library charts)"
         required: false
         type: boolean
         default: true
@@ -60,12 +60,30 @@ jobs:
           echo "chart-dir=$CHART_DIR" >> "$GITHUB_OUTPUT"
           echo "Chart directory: $CHART_DIR"
 
+      - name: Detect chart type
+        id: detect
+        run: |
+          CHART_TYPE=$(yq eval '.type // "application"' "${{ steps.paths.outputs.chart-dir }}/Chart.yaml")
+          echo "chart-type=$CHART_TYPE" >> "$GITHUB_OUTPUT"
+          echo "Chart type: $CHART_TYPE"
+
+      - name: Update dependencies
+        run: |
+          cd "${{ steps.paths.outputs.chart-dir }}"
+          if [ -f "Chart.yaml" ] && yq eval '.dependencies' Chart.yaml > /dev/null 2>&1; then
+            echo "Updating chart dependencies..."
+            helm dependency update
+          else
+            echo "No dependencies found, skipping dependency update"
+          fi
+
       - name: Helm lint
         run: |
           echo "Linting Helm chart..."
           helm lint ${{ steps.paths.outputs.chart-dir }}
 
       - name: Helm template
+        if: steps.detect.outputs.chart-type != 'library'
         run: |
           echo "Templating Helm chart..."
           helm template test ${{ steps.paths.outputs.chart-dir }} --debug
@@ -102,7 +120,25 @@ jobs:
           fi
           echo "chart-dir=$CHART_DIR" >> "$GITHUB_OUTPUT"
 
+      - name: Detect chart type
+        id: detect
+        run: |
+          CHART_TYPE=$(yq eval '.type // "application"' "${{ steps.paths.outputs.chart-dir }}/Chart.yaml")
+          echo "chart-type=$CHART_TYPE" >> "$GITHUB_OUTPUT"
+          echo "Chart type: $CHART_TYPE"
+
+      - name: Update dependencies
+        run: |
+          cd "${{ steps.paths.outputs.chart-dir }}"
+          if [ -f "Chart.yaml" ] && yq eval '.dependencies' Chart.yaml > /dev/null 2>&1; then
+            echo "Updating chart dependencies..."
+            helm dependency update
+          else
+            echo "No dependencies found, skipping dependency update"
+          fi
+
       - name: Validate with kubeconform
+        if: steps.detect.outputs.chart-type != 'library'
         run: |
           echo "Validating with kubeconform..."
           K8S_VERSION="${{ inputs.kubernetes-version }}"
@@ -112,6 +148,11 @@ jobs:
             -schema-location default \
             -strict \
             -summary
+
+      - name: Skip kubeconform for library chart
+        if: steps.detect.outputs.chart-type == 'library'
+        run: |
+          echo "⏭️ Skipping kubeconform validation for library chart"
 
   install-test:
     name: Helm Install Test
@@ -130,12 +171,6 @@ jobs:
         with:
           version: ${{ inputs.helm-version }}
 
-      - name: Setup Kind
-        uses: helm/kind-action@v1
-        with:
-          version: v0.25.0
-          kubectl_version: ${{ inputs.kubernetes-version }}
-
       - name: Resolve paths
         id: paths
         run: |
@@ -145,17 +180,58 @@ jobs:
           fi
           echo "chart-dir=$CHART_DIR" >> "$GITHUB_OUTPUT"
 
+      - name: Detect chart type
+        id: detect
+        run: |
+          CHART_TYPE=$(yq eval '.type // "application"' "${{ steps.paths.outputs.chart-dir }}/Chart.yaml")
+          echo "chart-type=$CHART_TYPE" >> "$GITHUB_OUTPUT"
+          echo "Chart type: $CHART_TYPE"
+
+      - name: Update dependencies
+        if: steps.detect.outputs.chart-type != 'library'
+        run: |
+          cd "${{ steps.paths.outputs.chart-dir }}"
+          if [ -f "Chart.yaml" ] && yq eval '.dependencies' Chart.yaml > /dev/null 2>&1; then
+            echo "Updating chart dependencies..."
+            helm dependency update
+          else
+            echo "No dependencies found, skipping dependency update"
+          fi
+
+      - name: Setup Kind
+        if: steps.detect.outputs.chart-type != 'library'
+        uses: helm/kind-action@v1
+        with:
+          version: v0.25.0
+          kubectl_version: ${{ inputs.kubernetes-version }}
+
       - name: Install chart
+        if: steps.detect.outputs.chart-type != 'library'
         run: |
           echo "Installing Helm chart in Kind cluster..."
           helm install test-release ${{ steps.paths.outputs.chart-dir }} \
             --wait --timeout 5m --debug \
             --dry-run
 
+      - name: Skip install test for library chart
+        if: steps.detect.outputs.chart-type == 'library'
+        run: |
+          echo "⏭️ Skipping install test for library chart (library charts cannot be installed independently)"
+
       - name: Chart info
         run: |
+          CHART_NAME=$(yq eval '.name' "${{ steps.paths.outputs.chart-dir }}/Chart.yaml")
+          CHART_VERSION=$(yq eval '.version' "${{ steps.paths.outputs.chart-dir }}/Chart.yaml")
+          CHART_TYPE="${{ steps.detect.outputs.chart-type }}"
+
           {
-            echo "### ⎈ Helm Chart Test Results"
-            echo "**Chart:** ${{ steps.paths.outputs.chart-dir }}"
+            if [ "$CHART_TYPE" = "library" ]; then
+              echo "### 📚 Helm Library Chart Test Results"
+            else
+              echo "### ⎈ Helm Chart Test Results"
+            fi
+            echo "**Chart:** $CHART_NAME"
+            echo "**Version:** $CHART_VERSION"
+            echo "**Type:** $CHART_TYPE"
             echo "**Status:** ✅ Passed"
           } >> "$GITHUB_STEP_SUMMARY"
