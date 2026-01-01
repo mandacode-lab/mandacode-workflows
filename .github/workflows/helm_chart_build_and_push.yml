@@ -52,6 +52,8 @@ permissions:
   actions: read
   contents: read
   packages: write
+  id-token: write
+  attestations: write
 
 jobs:
   package-and-push:
