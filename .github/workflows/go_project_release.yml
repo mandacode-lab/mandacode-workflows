@@ -4,10 +4,29 @@ on:
   workflow_call:
     inputs:
       registry:
-        description: "Docker registry"
+        description: "Default registry for Docker and Helm"
         required: false
         type: string
         default: "ghcr.io"
+      repository:
+        description: "Default repository path in registry (e.g., owner/repo-name)"
+        required: true
+        type: string
+      helm-registry:
+        description: "Helm OCI registry (overrides default registry if set)"
+        required: false
+        type: string
+        default: ""
+      helm-repository:
+        description: "Helm repository path (overrides default repository if set)"
+        required: false
+        type: string
+        default: ""
+      enable-helm-release:
+        description: "Enable Helm chart release"
+        required: false
+        type: boolean
+        default: false
       tag-prefix:
         description: "Tag prefix (e.g., v for v1.0.0)"
         required: false
@@ -53,6 +72,26 @@ on:
         required: false
         type: boolean
         default: true
+      charts:
+        description: "JSON array of chart configurations [{dir}]"
+        required: false
+        type: string
+        default: "[]"
+      chart-base-path:
+        description: "Base path for Helm charts (prepended to chart dirs)"
+        required: false
+        type: string
+        default: ""
+      helm-version:
+        description: "Helm version to use"
+        required: false
+        type: string
+        default: "v3.19.2"
+      enable-chart-signing:
+        description: "Enable chart signing with GPG"
+        required: false
+        type: boolean
+        default: false
     secrets:
       registry-username:
         description: "Registry username"
@@ -60,6 +99,21 @@ on:
       registry-password:
         description: "Registry password/token"
         required: true
+      helm-registry-username:
+        description: "Helm registry username"
+        required: false
+      helm-registry-password:
+        description: "Helm registry password/token"
+        required: false
+      gpg-private-key:
+        description: "GPG private key for signing (base64 encoded)"
+        required: false
+      gpg-key-name:
+        description: "GPG key name for signing"
+        required: false
+      gpg-passphrase:
+        description: "GPG key passphrase"
+        required: false
 
 permissions:
   actions: read
@@ -114,6 +168,7 @@ jobs:
       base-path: ${{ inputs.image-base-path }}
       build-context: ${{ inputs.build-context }}
       registry: ${{ inputs.registry }}
+      repository: ${{ inputs.repository }}
       tag: ${{ github.ref_name }}
       tag-prefix: ${{ inputs.tag-prefix }}
       platforms: ${{ inputs.platforms }}
@@ -132,6 +187,7 @@ jobs:
       base-path: ${{ inputs.image-base-path }}
       build-context: ${{ inputs.build-context }}
       registry: ${{ inputs.registry }}
+      repository: ${{ inputs.repository }}
       tag: ${{ github.ref_name }}
       tag-prefix: ${{ inputs.migration-tag-prefix }}
       platforms: ${{ inputs.platforms }}
@@ -140,3 +196,22 @@ jobs:
     secrets:
       registry-username: ${{ secrets.registry-username }}
       registry-password: ${{ secrets.registry-password }}
+
+  helm-package-and-push:
+    name: Package and Push Helm Chart
+    if: inputs.enable-helm-release && fromJson(inputs.charts)[0] != null && startsWith(github.ref_name, inputs.tag-prefix)
+    uses: ./.github/workflows/helm_chart_build_and_push.yml
+    with:
+      charts: ${{ inputs.charts }}
+      base-path: ${{ inputs.chart-base-path }}
+      registry: ${{ inputs.helm-registry != '' && inputs.helm-registry || inputs.registry }}
+      repository: ${{ inputs.helm-repository != '' && inputs.helm-repository || inputs.repository }}
+      helm-version: ${{ inputs.helm-version }}
+      enable-signing: ${{ inputs.enable-chart-signing }}
+      enable-provenance: ${{ inputs.enable-provenance }}
+    secrets:
+      registry-username: ${{ secrets.helm-registry-username != '' && secrets.helm-registry-username || secrets.registry-username }}
+      registry-password: ${{ secrets.helm-registry-password != '' && secrets.helm-registry-password || secrets.registry-password }}
+      gpg-private-key: ${{ secrets.gpg-private-key }}
+      gpg-key-name: ${{ secrets.gpg-key-name }}
+      gpg-passphrase: ${{ secrets.gpg-passphrase }}
