@@ -84,9 +84,13 @@ jobs:
           echo "Chart directory: $CHART_DIR"
 
       - name: Login to OCI registry
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          USERNAME: ${{ secrets.registry-username }}
+          PASSWORD: ${{ secrets.registry-password }}
         run: |
-          echo "${{ secrets.registry-password }}" | helm registry login ${{ inputs.registry }} \
-            --username ${{ secrets.registry-username }} \
+          echo "$PASSWORD" | helm registry login "$REGISTRY" \
+            --username "$USERNAME" \
             --password-stdin
 
       - name: Extract chart info
