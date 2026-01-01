@@ -73,12 +73,12 @@ on:
         required: false
         type: boolean
         default: false
-      helm-charts:
+      charts:
         description: "JSON array of Helm chart directories [{dir}]"
         required: false
         type: string
         default: "[]"
-      helm-base-path:
+      chart-base-path:
         description: "Base path for Helm charts"
         required: false
         type: string
@@ -117,8 +117,8 @@ jobs:
 
   helm-test:
     name: Helm Chart Test
-    if: inputs.enable-helm-test && fromJson(inputs.helm-charts) != null && fromJson(inputs.helm-charts)[0] != null
+    if: inputs.enable-helm-test && fromJson(inputs.charts) != null && fromJson(inputs.charts)[0] != null
     uses: ./.github/workflows/helm_chart_test.yml
     with:
-      charts: ${{ inputs.helm-charts }}
-      base-path: ${{ inputs.helm-base-path }}
+      charts: ${{ inputs.charts }}
+      base-path: ${{ inputs.chart-base-path }}
