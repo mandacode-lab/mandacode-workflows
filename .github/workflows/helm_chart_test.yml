@@ -67,23 +67,15 @@ jobs:
           echo "chart-type=$CHART_TYPE" >> "$GITHUB_OUTPUT"
           echo "Chart type: $CHART_TYPE"
 
-      - name: Build dependencies
-        run: |
-          cd "${{ steps.paths.outputs.chart-dir }}"
-          if [ -f "Chart.yaml" ] && yq eval '.dependencies' Chart.yaml > /dev/null 2>&1; then
-            helm dependency build
-          else
-            echo "No dependencies found"
-          fi
+      - name: Update dependencies
+        run: helm dependency update "${{ steps.paths.outputs.chart-dir }}"
 
       - name: Helm lint
-        run: |
-          helm lint ${{ steps.paths.outputs.chart-dir }}
+        run: helm lint "${{ steps.paths.outputs.chart-dir }}"
 
       - name: Helm template
         if: steps.detect.outputs.chart-type != 'library'
-        run: |
-          helm template test ${{ steps.paths.outputs.chart-dir }} --debug
+        run: helm template test "${{ steps.paths.outputs.chart-dir }}" --debug
 
   kubeconform:
     name: Kubeconform Validation
@@ -124,14 +116,9 @@ jobs:
           echo "chart-type=$CHART_TYPE" >> "$GITHUB_OUTPUT"
           echo "Chart type: $CHART_TYPE"
 
-      - name: Build dependencies
-        run: |
-          cd "${{ steps.paths.outputs.chart-dir }}"
-          if [ -f "Chart.yaml" ] && yq eval '.dependencies' Chart.yaml > /dev/null 2>&1; then
-            helm dependency build
-          else
-            echo "No dependencies found"
-          fi
+      - name: Update dependencies
+        if: steps.detect.outputs.chart-type != 'library'
+        run: helm dependency update "${{ steps.paths.outputs.chart-dir }}"
 
       - name: Validate with kubeconform
         if: steps.detect.outputs.chart-type != 'library'
@@ -184,14 +171,7 @@ jobs:
 
       - name: Update dependencies
         if: steps.detect.outputs.chart-type != 'library'
-        run: |
-          cd "${{ steps.paths.outputs.chart-dir }}"
-          if [ -f "Chart.yaml" ] && yq eval '.dependencies' Chart.yaml > /dev/null 2>&1; then
-            echo "Updating chart dependencies..."
-            helm dependency update
-          else
-            echo "No dependencies found, skipping dependency update"
-          fi
+        run: helm dependency update "${{ steps.paths.outputs.chart-dir }}"
 
       - name: Setup Kind
         if: steps.detect.outputs.chart-type != 'library'

@@ -129,6 +129,9 @@ jobs:
           echo "${{ secrets.gpg-private-key }}" | base64 -d | gpg --import --batch --yes
           echo "GPG key imported"
 
+      - name: Update dependencies
+        run: helm dependency update "${{ steps.paths.outputs.chart-dir }}"
+
       - name: Package chart
         run: |
           mkdir -p .helm-packages
