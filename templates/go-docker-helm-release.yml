@@ -52,7 +52,7 @@ jobs:
         ]
       registry: ghcr.io
       repository: ${{ github.repository }}
-      helm-version: "v3.16.3"
+      helm-version: "v4.0.4"
       enable-provenance: true
       skip-existing: true
     secrets:
