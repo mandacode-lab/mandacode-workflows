@@ -184,22 +184,22 @@ jobs:
 
           DEPRECATED_FOUND=false
 
-          # Check for set-output (deprecated)
-          if grep -r "set-output" .github/workflows/ 2>/dev/null; then
+          # Check for set-output (deprecated) - exclude workflow-lint.yml itself
+          if grep -r "set-output" .github/workflows/ --exclude="workflow-lint.yml" 2>/dev/null; then
             echo "⚠️ Found deprecated 'set-output' command"
             echo "   Use 'echo \"key=value\" >> \$GITHUB_OUTPUT' instead"
             DEPRECATED_FOUND=true
           fi
 
-          # Check for save-state (deprecated)
-          if grep -r "save-state" .github/workflows/ 2>/dev/null; then
+          # Check for save-state (deprecated) - exclude workflow-lint.yml itself
+          if grep -r "save-state" .github/workflows/ --exclude="workflow-lint.yml" 2>/dev/null; then
             echo "⚠️ Found deprecated 'save-state' command"
             echo "   Use 'echo \"key=value\" >> \$GITHUB_STATE' instead"
             DEPRECATED_FOUND=true
           fi
 
-          # Check for add-path (deprecated)
-          if grep -r "add-path" .github/workflows/ 2>/dev/null; then
+          # Check for add-path (deprecated) - exclude workflow-lint.yml itself
+          if grep -r "add-path" .github/workflows/ --exclude="workflow-lint.yml" 2>/dev/null; then
             echo "⚠️ Found deprecated 'add-path' command"
             echo "   Use 'echo \"path\" >> \$GITHUB_PATH' instead"
             DEPRECATED_FOUND=true
