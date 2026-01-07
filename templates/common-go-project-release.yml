@@ -34,7 +34,7 @@ jobs:
       repository: ${{ github.repository }}
       tag: ${{ github.ref_name }}
       tag-prefix: "v"
-      platforms: "linux/amd64,linux/arm64"
+      platforms: "linux/amd64"
       enable-provenance: true
       enable-sbom: true
     secrets:
