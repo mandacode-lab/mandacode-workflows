@@ -19,7 +19,7 @@ on:
         description: "Go version to use"
         required: false
         type: string
-        default: "1.25.5"
+        default: "1.25.6"
       go-version-file:
         description: "Path to go.mod or go.work file for Go version (takes precedence over go-version)"
         required: false
@@ -30,8 +30,8 @@ on:
         required: false
         type: string
         default: "./..."
-      test-path:
-        description: "Path to test"
+      test-paths:
+        description: "Paths to test"
         required: false
         type: string
         default: "./..."
@@ -133,9 +133,9 @@ jobs:
         run: |
           echo "🧪 Running tests..."
           if [ "${{ inputs.enable-coverage }}" = "true" ]; then
-            go test ${{ inputs.test-flags }} -coverprofile=coverage.out -covermode=atomic ${{ inputs.test-path }}
+            go test ${{ inputs.test-flags }} -coverprofile=coverage.out -covermode=atomic ${{ inputs.test-paths }}
           else
-            go test ${{ inputs.test-flags }} ${{ inputs.test-path }}
+            go test ${{ inputs.test-flags }} ${{ inputs.test-paths }}
           fi
 
       - name: Generate coverage report
